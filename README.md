@@ -24,8 +24,9 @@ parse.
 
 ## How the prompt maps to the rubric
 
-The prompt is designed against the 9 criteria documented in
-[`../prompt_example.md`](../prompt_example.md):
+The prompt is designed against the 9 criteria from the course's
+`prompt_example.md` rubric (external to this repo — part of the
+*School of AI · Session 5* course materials):
 
 | # | Criterion | Where it's satisfied |
 |---|-----------|----------------------|
@@ -75,7 +76,7 @@ cost, or what keys you happen to have.
   so the model never needs to call `lookup_model_spec` for known models.
   Single LLM call, no parser, full JSON via `response_format`. The prompt
   still documents the `FUNCTION_CALL` protocol so a v2 can wire native
-  tool-use exactly like `../agent5.py`.
+  tool-use through a multi-provider gateway.
 - **One flat `Recommendation` schema** covers all three §5/§6 output shapes
   (`ok` / `needs_clarification` / `no_feasible_model`) via optional fields —
   cleaner with strict JSON schema than a discriminated union.
@@ -86,17 +87,15 @@ cost, or what keys you happen to have.
 
 ## Setup
 
-Python 3.13+, dependencies from the parent `pyproject.toml` (`anthropic`,
-`httpx`, `mcp`, `pydantic`).
+Python 3.13+. Three dependencies — install with pip:
 
 ```powershell
-# from the repo root (the Session 5 folder)
-uv sync
+pip install anthropic httpx pydantic
 ```
 
 Now pick one of the two backends below.
 
-### Option A — `--backend anthropic` (simplest)
+### Option A — `--backend anthropic` (simplest, self-contained)
 
 No gateway, no venv, no `.env` file. Just set `ANTHROPIC_API_KEY` in your
 shell environment and run the tool.
@@ -109,16 +108,22 @@ python llm_recommender.py --backend anthropic "your problem statement"
 
 Defaults to `claude-sonnet-4-5`; override with `--model claude-opus-4-7`.
 
-### Option B — `--backend gateway` (multi-provider, default)
+### Option B — `--backend gateway` (multi-provider, requires extra setup)
+
+> Not bundled with this repo. The gateway is a separate FastAPI service from
+> the wider *Session 5* course project. The launcher (`run_gateway.ps1`) and
+> the recommender's gateway client assume the gateway lives at
+> `..\llm_gatewayV2\` relative to this folder — if you want to use this path,
+> clone or place that gateway project alongside this repo.
 
 Routes through `llm_gatewayV2` so you can use Groq, Gemini, NVIDIA, GitHub
-Models, Cerebras, OpenRouter, or Ollama. Same gateway `agent5.py` uses.
+Models, Cerebras, OpenRouter, or Ollama.
 
-**1. Provider keys.** Create `..\.env` with at least one provider key —
-Groq is the easiest (free tier, fast, native tool-use):
+**1. Provider keys.** Create `..\.env` (in the parent folder, next to the
+gateway) with at least one provider key — Groq is the easiest (free tier,
+fast, native tool-use):
 
 ```ini
-# ../.env
 GROQ_API_KEY=gsk_...
 # optional extras:
 GEMINI_API_KEY=...
@@ -136,7 +141,6 @@ Get a Groq key at https://console.groq.com/keys.
 Windows (recommended) — use the bundled launcher:
 
 ```powershell
-cd Session-5-assignment
 .\run_gateway.ps1                 # creates a Windows venv on first run, starts on :8100
 .\run_gateway.ps1 -Port 8200      # override port
 .\run_gateway.ps1 -Reinstall      # rebuild the venv from scratch
@@ -145,11 +149,7 @@ cd Session-5-assignment
 If PowerShell blocks the script with an execution-policy error, run once per
 user: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
 
-macOS / Linux — use the original bash launcher:
-
-```bash
-bash ../llm_gatewayV2/run.sh
-```
+macOS / Linux — invoke the gateway's own launcher from inside its folder.
 
 Verify in a second shell:
 
@@ -164,19 +164,17 @@ curl http://localhost:8100/v1/capabilities
 ### One-shot
 
 ```powershell
-# Anthropic direct (no gateway needed)
 python llm_recommender.py --backend anthropic "Summarize 300-page legal contracts on-prem, < 5s/page" --on-prem --min-context 200000
 
 python llm_recommender.py --backend anthropic --max-cost 0.001 "Classify 10M short product reviews per day"
 
-# Gateway (requires run_gateway.ps1 running on :8100)
-python llm_recommender.py "Vision QA on UI screenshots" --modalities text,vision --json
+python llm_recommender.py --backend anthropic --modalities text,vision --json "Vision QA on UI screenshots"
 ```
 
 ### Multi-turn refinement
 
 ```powershell
-python llm_recommender.py --interactive
+python llm_recommender.py --backend anthropic --interactive
 ```
 
 Each turn is fed back via `prior_turns`, and the model emits a
@@ -242,17 +240,28 @@ Two alternative shapes are also valid (see §6 of the prompt):
 - **Add a model**: append a dict to `MODEL_CATALOG` in `llm_recommender.py`.
   Fields: `model`, `provider`, `context_tokens`, `modalities`, `in_usd_per_1k`,
   `out_usd_per_1k`, `latency_tier`, `open_source`, `on_prem`, `strengths`.
-- **Enable real lookups**: wire native tool-use through the gateway exactly
-  like `../agent5.py` does — define `lookup_model_spec` and `benchmark_search`
-  as tools, then run the agent loop. The prompt's §3 already documents the
-  call shape.
+- **Enable real lookups**: wire native tool-use through a multi-provider
+  gateway — define `lookup_model_spec` and `benchmark_search` as tools, then
+  run an agent loop that dispatches calls and feeds results back. The
+  prompt's §3 already documents the call shape.
 - **Persist sessions**: store `prior_turns` to disk between invocations
   instead of keeping them in memory in `--interactive`.
 
 ---
 
-## Related files in the parent folder
+## Origin
 
-- `../agent5.py` — Session 5 native tool-use loop; pattern this tool borrows.
-- `../llm_gatewayV2/` — the multi-provider gateway.
-- `../prompt_example.md` — the 9-criteria rubric the prompt was designed against.
+This repo is the deliverable for *The School of AI · Session 5 — Planning
+and Reasoning with Language Models*. The wider course project (not in this
+repo) contains:
+
+- A reference agent (`agent5.py`) with a native tool-use loop — the pattern
+  this tool borrows for its `--backend gateway` path.
+- `llm_gatewayV2/` — a 7-provider FastAPI gateway (Groq, Gemini, NVIDIA,
+  Cerebras, OpenRouter, GitHub Models, Ollama) referenced by Option B above.
+- `prompt_example.md` — the 9-criteria rubric used to design the prompt in
+  this repo.
+
+This repo is intentionally self-contained around **Option A**
+(`--backend anthropic`). Option B is documented for users who clone the
+wider course project alongside.
